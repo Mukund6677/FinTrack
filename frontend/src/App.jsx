@@ -456,6 +456,8 @@ function App() {
       fetchSplitBills(token);
       fetchRegisteredUsers(token);
       fetchBudgetAlerts(token);
+      const now = new Date();
+      fetchMonthlyAnalytics(token, now.getFullYear(), now.getMonth() + 1);
     }
   }, []);
 
@@ -494,7 +496,6 @@ function App() {
       await fetchSplitBills(data.access_token);
       await fetchRegisteredUsers(data.access_token);
       await fetchBudgetSummary(data.access_token);
-      await fetchExpenseSummary(data.access_token);
       await fetchExpenseSummary(data.access_token);
       const now = new Date();
 
@@ -1522,6 +1523,8 @@ function App() {
                   }
 
                   await fetchBudgets(token);
+                  await fetchBudgetSummary(token);
+                  await fetchBudgetAlerts(token);
 
                   setShowBudgetForm(false);
 

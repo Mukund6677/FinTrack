@@ -205,3 +205,43 @@ class CardBenefit(Base):
         TIMESTAMP,
         server_default=func.current_timestamp()
     )
+
+
+class CardUsage(Base):
+    __tablename__ = "card_usage"
+
+    usage_id = Column(Integer, primary_key=True, index=True)
+    card_id = Column(
+        Integer,
+        ForeignKey("cards.card_id"),
+        nullable=False
+    )
+    expense_id = Column(
+        Integer,
+        ForeignKey("expenses.expense_id"),
+        nullable=True
+    )
+    benefit_received = Column(DECIMAL(10, 2), nullable=True)
+    used_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp()
+    )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    notification_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id"),
+        nullable=False
+    )
+    title = Column(String(150), nullable=False)
+    message = Column(String(500), nullable=False)
+    notification_type = Column(String(50), nullable=True)
+    is_read = Column(Integer, default=0, nullable=False)
+    created_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp()
+    )
