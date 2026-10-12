@@ -3,8 +3,7 @@ import CardsManager from "./components/CardsManager";
 import FinancialReports from "./components/FinancialReports";
 import AIAssistant from "./components/AIAssistant";
 import SMSImporter from "./components/SMSImporter";
-
-const API_URL = "http://127.0.0.1:8000";
+import { API_URL } from "./config/api";
 
 const getCategoryIcon = (category) => {
   if (!category) return "💳";

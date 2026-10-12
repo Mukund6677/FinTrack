@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { API_URL as DEFAULT_API_URL } from "../config/api";
 
-export default function AIAssistant({ API_URL, token }) {
+export default function AIAssistant({ API_URL = DEFAULT_API_URL, token }) {
   const [query, setQuery] = useState("");
   const [conversation, setConversation] = useState([
     {

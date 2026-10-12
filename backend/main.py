@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from datetime import date, datetime
 from decimal import Decimal
+import os
 import re
 from typing import Optional, List, Dict, Any
 from auth import (
@@ -118,9 +119,24 @@ def create_system_notification(
 
 
 app = FastAPI(title="FinTrack API")
+default_dev_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+env_origins = []
+raw_allowed_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL", "")
+if raw_allowed_origins:
+    env_origins = [origin.strip().rstrip("/") for origin in raw_allowed_origins.split(",") if origin.strip()]
+
+allowed_origins = list(dict.fromkeys(default_dev_origins + env_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { API_URL as DEFAULT_API_URL } from "../config/api";
 
-export default function CardsManager({ API_URL, token, expenses = [] }) {
+export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expenses = [] }) {
   const [cards, setCards] = useState([]);
   const [usages, setUsages] = useState([]);
   const [recommendations, setRecommendations] = useState(null);

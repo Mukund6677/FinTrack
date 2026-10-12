@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { API_URL as DEFAULT_API_URL } from "../config/api";
 
-export default function SMSImporter({ API_URL, token, onTransactionAdded }) {
+export default function SMSImporter({ API_URL = DEFAULT_API_URL, token, onTransactionAdded }) {
   const [smsText, setSmsText] = useState("");
   const [parsedResult, setParsedResult] = useState(null);
   const [loading, setLoading] = useState(false);

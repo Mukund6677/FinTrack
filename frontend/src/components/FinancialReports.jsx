@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import { API_URL as DEFAULT_API_URL } from "../config/api";
 
-export default function FinancialReports({ API_URL, token, initialStartDate = "", initialEndDate = "" }) {
+export default function FinancialReports({ API_URL = DEFAULT_API_URL, token, initialStartDate = "", initialEndDate = "" }) {
   const [startDate, setStartDate] = useState(initialStartDate);
   const [endDate, setEndDate] = useState(initialEndDate);
   const [report, setReport] = useState(null);
