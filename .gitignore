@@ -19,3 +19,7 @@ frontend/dist/
 # OS
 Thumbs.db
 .DS_Store
+
+# Database backups & local dumps
+*.sql
+

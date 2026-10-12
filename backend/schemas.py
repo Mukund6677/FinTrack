@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Literal, Optional
 
 
@@ -9,10 +9,33 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v):
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("Name cannot be empty")
+        return v
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v):
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
 
 
 class TokenResponse(BaseModel):
@@ -95,3 +118,39 @@ class CardBenefitCreate(BaseModel):
     benefit_type: str
     benefit_value: Decimal
     conditions: Optional[str] = None
+
+
+class CardUsageCreate(BaseModel):
+    expense_id: int
+    benefit_received: Optional[Decimal] = None
+
+
+class AIAssistantRequest(BaseModel):
+    query: str
+
+
+class SMSParseRequest(BaseModel):
+    sms_text: str
+
+
+class SMSConfirmRequest(BaseModel):
+    transaction_type: Literal["EXPENSE", "INCOME"]
+    amount: Decimal
+    category_or_source: str
+    transaction_date: date
+    merchant: Optional[str] = None
+    description: Optional[str] = None
+    payment_method: Optional[str] = "SMS"
+
+
+class NotificationResponse(BaseModel):
+    notification_id: int
+    user_id: int
+    title: str
+    message: str
+    notification_type: Optional[str] = None
+    is_read: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

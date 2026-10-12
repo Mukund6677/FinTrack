@@ -219,7 +219,7 @@ class CardUsage(Base):
     expense_id = Column(
         Integer,
         ForeignKey("expenses.expense_id"),
-        nullable=True
+        nullable=False
     )
     benefit_received = Column(DECIMAL(10, 2), nullable=True)
     used_at = Column(
