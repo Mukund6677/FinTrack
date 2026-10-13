@@ -143,6 +143,24 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def startup_db_init():
+    """
+    Safe and idempotent database initialization on application startup.
+    Ensures missing tables exist without modifying or dropping existing data.
+    """
+    try:
+        from database import init_db, engine
+        init_db()
+        dialect_name = engine.dialect.name
+        masked_host = engine.url.host or "local"
+        print(f"[FinTrack Startup] Database tables verified on {dialect_name} ({masked_host})")
+    except Exception as e:
+        import traceback
+        print(f"[FinTrack Startup ERROR] Database initialization encountered an error: {e}")
+        traceback.print_exc()
+
+
 @app.get("/")
 def root():
     return {
@@ -155,15 +173,23 @@ def db_test():
     try:
         from database import engine
 
-        with engine.connect():
+        with engine.connect() as conn:
+            dialect_name = engine.dialect.name
+            driver_name = engine.dialect.driver
+            db_name = engine.url.database or "default"
             return {
-                "message": "MySQL database connected successfully"
+                "message": f"{dialect_name.upper()} database connected successfully",
+                "dialect": dialect_name,
+                "driver": driver_name,
+                "database": db_name,
+                "status": "connected"
             }
 
     except Exception as e:
         return {
             "message": "Database connection failed",
-            "error": str(e)
+            "error": str(e),
+            "status": "error"
         }
 
 

@@ -20,7 +20,7 @@ class User(Base):
     email = Column(String(150), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(
-        Enum("USER", "DEVELOPER"),
+        Enum("USER", "DEVELOPER", name="user_role"),
         nullable=False,
         default="USER"
     )
@@ -91,7 +91,7 @@ class IncomeAllocation(Base):
     due_date = Column(Date, nullable=True)
 
     status = Column(
-        Enum("PENDING", "COMPLETED", "CANCELLED"),
+        Enum("PENDING", "COMPLETED", "CANCELLED", name="allocation_status"),
         default="PENDING"
     )
 
@@ -138,7 +138,7 @@ class SplitParticipant(Base):
     share_amount = Column(DECIMAL(12, 2), nullable=False)
     amount_paid = Column(DECIMAL(12, 2), default=0.00)
     status = Column(
-        Enum("PENDING", "PARTIAL", "PAID"),
+        Enum("PENDING", "PARTIAL", "PAID", name="participant_status"),
         default="PENDING"
     )
 
@@ -156,7 +156,7 @@ class Settlement(Base):
     amount = Column(DECIMAL(12, 2), nullable=False)
     settlement_date = Column(Date, nullable=True)
     status = Column(
-        Enum("PENDING", "PAID", "CANCELLED"),
+        Enum("PENDING", "PAID", "CANCELLED", name="settlement_status"),
         default="PENDING"
     )
     created_at = Column(TIMESTAMP)
