@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { API_URL as DEFAULT_API_URL } from "../config/api";
+import Modal from "./common/Modal";
+import ConfirmDialog from "./common/ConfirmDialog";
 
 export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expenses = [] }) {
   const [cards, setCards] = useState([]);
@@ -8,6 +10,8 @@ export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expense
   const [recCategory, setRecCategory] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
+  const [cardToDelete, setCardToDelete] = useState(null);
+  const [isDeletingCard, setIsDeletingCard] = useState(false);
 
   const [showAddCard, setShowAddCard] = useState(false);
   const [cardForm, setCardForm] = useState({
@@ -152,21 +156,28 @@ export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expense
     }
   };
 
-  const handleDeleteCard = async (cardId) => {
-    if (!window.confirm("Are you sure you want to delete this card and its associated records?")) return;
+  const handleConfirmDeleteCard = async () => {
+    if (!cardToDelete) return;
+    setIsDeletingCard(true);
     try {
-      const res = await fetch(`${API_URL}/cards/${cardId}`, {
+      const res = await fetch(`${API_URL}/cards/${cardToDelete.card_id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         setMsg("Card deleted successfully");
+        setCardToDelete(null);
         fetchCards();
         fetchUsages();
         fetchRecommendations();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg(`❌ ${data.detail || "Failed to delete card"}`);
       }
     } catch (err) {
-      setMsg(err.message);
+      setMsg(`❌ ${err.message}`);
+    } finally {
+      setIsDeletingCard(false);
     }
   };
 
@@ -403,7 +414,7 @@ export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expense
                   </button>
                   <button
                     className="card-btn danger"
-                    onClick={() => handleDeleteCard(card.card_id)}
+                    onClick={() => setCardToDelete(card)}
                   >
                     Delete
                   </button>
@@ -414,119 +425,134 @@ export default function CardsManager({ API_URL = DEFAULT_API_URL, token, expense
         )}
       </div>
 
+      {/* CONFIRM DIALOG: DELETE CARD */}
+      <ConfirmDialog
+        isOpen={!!cardToDelete}
+        title="Delete Card"
+        message={
+          cardToDelete ? (
+            <p>
+              Are you sure you want to delete <strong>{cardToDelete.card_name}</strong> ({cardToDelete.issuer})
+              {cardToDelete.last_four_digits ? ` ending in •••• ${cardToDelete.last_four_digits}` : ""}?
+              All associated card benefits and recorded card usage history will also be permanently removed.
+            </p>
+          ) : ""
+        }
+        confirmText="Delete Card"
+        cancelText="Cancel"
+        onConfirm={handleConfirmDeleteCard}
+        onCancel={() => {
+          if (!isDeletingCard) setCardToDelete(null);
+        }}
+        isLoading={isDeletingCard}
+        variant="danger"
+      />
+
       {/* MODAL: ADD BENEFIT */}
-      {activeCardForBenefit && (
-        <div className="notion-modal-backdrop">
-          <div className="notion-modal-box">
-            <div className="notion-modal-header">
-              <h3>Add Benefit to {activeCardForBenefit.card_name}</h3>
-              <button className="notion-modal-close" onClick={() => setActiveCardForBenefit(null)}>✕</button>
-            </div>
-            <form onSubmit={handleAddBenefit}>
-              <div>
-                <label>Spending Category</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Dining, Travel, Groceries, Fuel, Shopping"
-                  value={benefitForm.category}
-                  onChange={e => setBenefitForm({ ...benefitForm, category: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <label>Benefit Type</label>
-                <select
-                  value={benefitForm.benefit_type}
-                  onChange={e => setBenefitForm({ ...benefitForm, benefit_type: e.target.value })}
-                >
-                  <option value="Cashback">Cashback (%)</option>
-                  <option value="Points">Reward Points multiplier (x)</option>
-                  <option value="Fuel Surcharge Waiver">Fuel Surcharge Waiver (%)</option>
-                  <option value="Discount">Instant Discount (%)</option>
-                </select>
-              </div>
-              <div>
-                <label>Benefit Value</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="e.g. 5.0 for 5% cashback or 10x points"
-                  value={benefitForm.benefit_value}
-                  onChange={e => setBenefitForm({ ...benefitForm, benefit_value: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <label>Terms / Conditions (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Max ₹500/month, Min spend ₹1000"
-                  value={benefitForm.conditions}
-                  onChange={e => setBenefitForm({ ...benefitForm, conditions: e.target.value })}
-                />
-              </div>
-              <div className="notion-modal-actions">
-                <button type="submit" className="notion-btn-primary" style={{ flex: 1 }}>
-                  Save Benefit
-                </button>
-                <button type="button" className="notion-btn-secondary" style={{ flex: 1 }} onClick={() => setActiveCardForBenefit(null)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={!!activeCardForBenefit}
+        onClose={() => setActiveCardForBenefit(null)}
+        title={`Add Benefit to ${activeCardForBenefit?.card_name || "Card"}`}
+        maxWidth="480px"
+      >
+        <form onSubmit={handleAddBenefit}>
+          <div>
+            <label>Spending Category</label>
+            <input
+              type="text"
+              placeholder="e.g. Dining, Travel, Groceries, Fuel, Shopping"
+              value={benefitForm.category}
+              onChange={e => setBenefitForm({ ...benefitForm, category: e.target.value })}
+              required
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label>Benefit Type</label>
+            <select
+              value={benefitForm.benefit_type}
+              onChange={e => setBenefitForm({ ...benefitForm, benefit_type: e.target.value })}
+            >
+              <option value="Cashback">Cashback (%)</option>
+              <option value="Points">Reward Points multiplier (x)</option>
+              <option value="Fuel Surcharge Waiver">Fuel Surcharge Waiver (%)</option>
+              <option value="Discount">Instant Discount (%)</option>
+            </select>
+          </div>
+          <div>
+            <label>Benefit Value</label>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 5.0 for 5% cashback or 10x points"
+              value={benefitForm.benefit_value}
+              onChange={e => setBenefitForm({ ...benefitForm, benefit_value: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <label>Terms / Conditions (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. Max ₹500/month, Min spend ₹1000"
+              value={benefitForm.conditions}
+              onChange={e => setBenefitForm({ ...benefitForm, conditions: e.target.value })}
+            />
+          </div>
+          <div className="notion-modal-actions">
+            <button type="submit" className="notion-btn-primary" style={{ flex: 1 }}>
+              Save Benefit
+            </button>
+            <button type="button" className="notion-btn-secondary" style={{ flex: 1 }} onClick={() => setActiveCardForBenefit(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* MODAL: RECORD USAGE */}
-      {activeCardForUsage && (
-        <div className="notion-modal-backdrop">
-          <div className="notion-modal-box">
-            <div className="notion-modal-header">
-              <h3>Record Usage for {activeCardForUsage.card_name}</h3>
-              <button className="notion-modal-close" onClick={() => setActiveCardForUsage(null)}>✕</button>
-            </div>
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "15px" }}>
-              Link this card payment to one of your recorded expenses and track benefits earned.
-            </p>
-            <form onSubmit={handleRecordUsage}>
-              <div>
-                <label>Select Expense Transaction</label>
-                <select
-                  value={usageForm.expense_id}
-                  onChange={e => setUsageForm({ ...usageForm, expense_id: e.target.value })}
-                  required
-                >
-                  <option value="">-- Choose an expense --</option>
-                  {expenses.map(exp => (
-                    <option key={exp.expense_id} value={exp.expense_id}>
-                      {exp.expense_date} - {exp.category} (₹{exp.amount}) {exp.merchant ? `at ${exp.merchant}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label>Benefit Received (₹)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="e.g. 50.00 (cashback earned)"
-                  value={usageForm.benefit_received}
-                  onChange={e => setUsageForm({ ...usageForm, benefit_received: e.target.value })}
-                />
-              </div>
-              <div className="notion-modal-actions">
-                <button type="submit" className="notion-btn-primary" style={{ flex: 1 }}>
-                  Save Usage
-                </button>
-                <button type="button" className="notion-btn-secondary" style={{ flex: 1 }} onClick={() => setActiveCardForUsage(null)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={!!activeCardForUsage}
+        onClose={() => setActiveCardForUsage(null)}
+        title={`Record Usage for ${activeCardForUsage?.card_name || "Card"}`}
+        subtitle="Link this card payment to one of your recorded expenses and track benefits earned."
+        maxWidth="480px"
+      >
+        <form onSubmit={handleRecordUsage}>
+          <div>
+            <label>Select Expense Transaction</label>
+            <select
+              value={usageForm.expense_id}
+              onChange={e => setUsageForm({ ...usageForm, expense_id: e.target.value })}
+              required
+            >
+              <option value="">-- Choose an expense --</option>
+              {expenses.map(exp => (
+                <option key={exp.expense_id} value={exp.expense_id}>
+                  {exp.expense_date} - {exp.category} (₹{exp.amount}) {exp.merchant ? `at ${exp.merchant}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      )}
+          <div>
+            <label>Benefit Received (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="e.g. 50.00 (cashback earned)"
+              value={usageForm.benefit_received}
+              onChange={e => setUsageForm({ ...usageForm, benefit_received: e.target.value })}
+            />
+          </div>
+          <div className="notion-modal-actions">
+            <button type="submit" className="notion-btn-primary" style={{ flex: 1 }}>
+              Save Usage
+            </button>
+            <button type="button" className="notion-btn-secondary" style={{ flex: 1 }} onClick={() => setActiveCardForUsage(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* PHASE 3: CARD RECOMMENDATIONS & OPTIMIZER */}
       <div style={{ marginTop: "40px", borderTop: "1px solid var(--border-default)", paddingTop: "25px" }}>

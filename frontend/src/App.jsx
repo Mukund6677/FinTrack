@@ -4,6 +4,11 @@ import FinancialReports from "./components/FinancialReports";
 import AIAssistant from "./components/AIAssistant";
 import SMSImporter from "./components/SMSImporter";
 import { API_URL } from "./config/api";
+import Modal from "./components/common/Modal";
+import ConfirmDialog from "./components/common/ConfirmDialog";
+import ToastContainer from "./components/common/Toast";
+import UpdateAllocationModal from "./components/allocations/UpdateAllocationModal";
+import RecordSettlementModal from "./components/splits/RecordSettlementModal";
 
 const getCategoryIcon = (category) => {
   if (!category) return "💳";
@@ -150,6 +155,54 @@ function App() {
 
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Modern In-App Toast Notifications
+  const [toasts, setToasts] = useState([]);
+  const addToast = (msg, type) => {
+    if (!msg) return;
+    const str = String(msg);
+    let resolvedType = type;
+    if (!resolvedType) {
+      const lower = str.toLowerCase();
+      if (
+        str.startsWith("❌") ||
+        lower.includes("failed") ||
+        lower.includes("error") ||
+        lower.includes("invalid") ||
+        lower.includes("unable")
+      ) {
+        resolvedType = "error";
+      } else if (
+        lower.includes("success") ||
+        lower.includes("registered") ||
+        lower.includes("created") ||
+        lower.includes("deleted") ||
+        lower.includes("recorded") ||
+        lower.includes("added")
+      ) {
+        resolvedType = "success";
+      } else {
+        resolvedType = "info";
+      }
+    }
+    const cleanMsg = str.replace(/^[❌✅ℹ️⚠️]\s*/, "");
+    const id = Date.now() + Math.random().toString(36).substring(2, 6);
+    setToasts((prev) => [...prev, { id, message: cleanMsg, type: resolvedType }]);
+    setMessage(str);
+  };
+  const dismissToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // State for in-app confirmation modal when deleting transactions
+  const [deleteTransactionTarget, setDeleteTransactionTarget] = useState(null);
+  const [isDeletingTransaction, setIsDeletingTransaction] = useState(false);
+
+  // State for in-app split bills payment recording modal
+  const [settlementTarget, setSettlementTarget] = useState(null);
+
+  // State for in-app income allocation update modal
+  const [editingAllocation, setEditingAllocation] = useState(null);
 
   const fetchDashboard = async (token) => {
     try {
@@ -399,35 +452,44 @@ function App() {
     }
   };
 
-  const handleDeleteTransaction = async (transaction) => {
-    if (!window.confirm(`Are you sure you want to delete this ${transaction.type.toLowerCase()} record?`)) {
-      return;
-    }
+  const handleDeleteTransaction = (transaction) => {
+    setDeleteTransactionTarget(transaction);
+  };
+
+  const handleConfirmDeleteTransaction = async () => {
+    if (!deleteTransactionTarget) return;
     const token = localStorage.getItem("access_token");
     if (!token) return;
 
+    setIsDeletingTransaction(true);
     try {
       const endpoint =
-        transaction.type === "INCOME"
-          ? `${API_URL}/income/${transaction.id}`
-          : `${API_URL}/expenses/${transaction.id}`;
+        deleteTransactionTarget.type === "INCOME"
+          ? `${API_URL}/income/${deleteTransactionTarget.id}`
+          : `${API_URL}/expenses/${deleteTransactionTarget.id}`;
 
       const res = await fetch(endpoint, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Failed to delete record");
 
-      setMessage(`${transaction.type === "INCOME" ? "Income" : "Expense"} record deleted successfully.`);
+      addToast(
+        `${deleteTransactionTarget.type === "INCOME" ? "Income" : "Expense"} record deleted successfully.`,
+        "success"
+      );
+      setDeleteTransactionTarget(null);
       await fetchDashboard(token);
       await fetchTransactions(token);
       await fetchExpenseSummary(token);
       await fetchBudgetSummary(token);
       await fetchNotifications(token);
     } catch (error) {
-      setMessage(`❌ ${error.message}`);
+      addToast(`❌ ${error.message}`, "error");
+    } finally {
+      setIsDeletingTransaction(false);
     }
   };
 
@@ -522,51 +584,13 @@ function App() {
     }
   };
 
-  const handleRecordSettlement = async (splitBillId, participantId) => {
-    const amount = window.prompt("Enter payment amount (₹):");
-
-    if (amount === null || amount.trim() === "") {
-      return;
-    }
-
-    const paymentAmount = Number(amount);
-
-    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      setMessage("Enter a valid payment amount greater than zero.");
-      return;
-    }
-
-    const token = localStorage.getItem("access_token");
-
-    try {
-      const response = await fetch(
-        `${API_URL}/split-bills/${splitBillId}/settlements`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            participant_id: participantId,
-            amount: paymentAmount,
-            settlement_date: new Date().toISOString().slice(0, 10),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to record settlement");
-      }
-
-      await fetchSplitBills(token);
-      setMessage(
-        `Payment recorded. Outstanding: ₹${data.outstanding_amount}`
-      );
-    } catch (error) {
-      setMessage(error.message);
+  const handleRecordSettlement = (splitBillId, participantId) => {
+    const bill = splitBills.find((b) => b.split_bill_id === splitBillId);
+    const participant = bill?.participants?.find(
+      (p) => p.participant_id === participantId
+    );
+    if (bill && participant) {
+      setSettlementTarget({ bill, participant });
     }
   };
 
@@ -930,72 +954,21 @@ function App() {
     }
   };
 
-  const handleUpdateAllocation = async (
+  const handleUpdateAllocation = (
     allocationId,
     currentActualAmount,
     currentStatus
   ) => {
-    const actualInput = window.prompt(
-      "Enter the actual amount spent:",
-      String(currentActualAmount ?? 0)
-    );
-
-    if (actualInput === null) return;
-
-    const actualAmount = Number(actualInput);
-
-    if (!Number.isFinite(actualAmount) || actualAmount < 0) {
-      setMessage("Enter a valid, non-negative actual amount.");
-      return;
-    }
-
-    const statusInput = window.prompt(
-      "Enter status: PENDING, COMPLETED, or CANCELLED",
-      currentStatus
-    );
-
-    if (statusInput === null) return;
-
-    const status = statusInput.trim().toUpperCase();
-
-    if (!["PENDING", "COMPLETED", "CANCELLED"].includes(status)) {
-      setMessage("Invalid allocation status.");
-      return;
-    }
-
-    const token = localStorage.getItem("access_token");
-
-    try {
-      const params = new URLSearchParams({
-        actual_amount: String(actualAmount),
-        status,
-      });
-
-      const response = await fetch(
-        `${API_URL}/allocations/${allocationId}?${params}`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.detail === "string"
-            ? data.detail
-            : "Failed to update allocation."
-        );
-      }
-
-      setMessage("Allocation updated successfully.");
-      await fetchAllocations(token);
-    } catch (error) {
-      setMessage(error.message);
-    }
+    const allocation = allocations.find(
+      (a) => a.allocation_id === allocationId
+    ) || {
+      allocation_id: allocationId,
+      actual_amount: currentActualAmount,
+      status: currentStatus,
+      title: "Allocation",
+      planned_amount: 0,
+    };
+    setEditingAllocation(allocation);
   };
 
   const handleLogout = () => {
@@ -1172,6 +1145,7 @@ function App() {
 
     return (
       <div className="notion-app-layout">
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
         {/* SIDEBAR BACKDROP FOR MOBILE */}
         {sidebarOpen && (
           <div
@@ -2843,13 +2817,7 @@ function App() {
                             <button
                               className="budget-button"
                               style={{ marginTop: "10px" }}
-                              onClick={() =>
-                                handleUpdateAllocation(
-                                  allocation.allocation_id,
-                                  allocation.actual_amount,
-                                  allocation.status
-                                )
-                              }
+                              onClick={() => setEditingAllocation(allocation)}
                               type="button"
                             >
                               Update Allocation
@@ -3025,7 +2993,7 @@ function App() {
                                     <button
                                       className="budget-button"
                                       style={{ marginTop: "4px", fontSize: "11px", padding: "4px 8px" }}
-                                      onClick={() => handleRecordSettlement(bill.split_bill_id, person.participant_id)}
+                                      onClick={() => setSettlementTarget({ bill, participant: person })}
                                       type="button"
                                     >
                                       Record Payment
@@ -3045,153 +3013,203 @@ function App() {
           </main>
         </div>
 
+        {/* IN-APP CONFIRMATION MODAL: DELETE TRANSACTION */}
+        <ConfirmDialog
+          isOpen={!!deleteTransactionTarget}
+          title={`Delete ${deleteTransactionTarget?.type === "INCOME" ? "Income" : "Expense"} Record`}
+          message={
+            deleteTransactionTarget ? (
+              <p>
+                Are you sure you want to delete this{" "}
+                <strong>{deleteTransactionTarget.type.toLowerCase()}</strong> record of{" "}
+                <strong>{formatCurrency(deleteTransactionTarget.amount)}</strong>
+                {deleteTransactionTarget.category
+                  ? ` (${deleteTransactionTarget.category})`
+                  : deleteTransactionTarget.source
+                  ? ` (${deleteTransactionTarget.source})`
+                  : ""}{" "}
+                dated <strong>{deleteTransactionTarget.date}</strong>? This action cannot be undone.
+              </p>
+            ) : ""
+          }
+          confirmText="Delete Record"
+          cancelText="Cancel"
+          onConfirm={handleConfirmDeleteTransaction}
+          onCancel={() => {
+            if (!isDeletingTransaction) setDeleteTransactionTarget(null);
+          }}
+          isLoading={isDeletingTransaction}
+          variant="danger"
+        />
+
+        {/* IN-APP FORM MODAL: UPDATE INCOME ALLOCATION */}
+        <UpdateAllocationModal
+          isOpen={!!editingAllocation}
+          allocation={editingAllocation}
+          onClose={() => setEditingAllocation(null)}
+          onSuccess={async (successMsg) => {
+            addToast(successMsg, "success");
+            const token = localStorage.getItem("access_token");
+            if (token) await fetchAllocations(token);
+          }}
+          apiUrl={API_URL}
+          token={localStorage.getItem("access_token")}
+        />
+
+        {/* IN-APP FORM MODAL: RECORD SPLIT BILL SETTLEMENT */}
+        <RecordSettlementModal
+          isOpen={!!settlementTarget}
+          bill={settlementTarget?.bill}
+          participant={settlementTarget?.participant}
+          onClose={() => setSettlementTarget(null)}
+          onSuccess={async (successMsg) => {
+            addToast(successMsg, "success");
+            const token = localStorage.getItem("access_token");
+            if (token) await fetchSplitBills(token);
+          }}
+          apiUrl={API_URL}
+          token={localStorage.getItem("access_token")}
+        />
+
         {/* MODALS FOR QUICK ACTIONS */}
-        {showIncomeForm && (
-          <div className="notion-modal-backdrop" onClick={() => setShowIncomeForm(false)}>
-            <div className="notion-modal-box" onClick={(e) => e.stopPropagation()}>
-              <div className="notion-modal-header">
-                <h3>Add New Income</h3>
-                <button onClick={() => setShowIncomeForm(false)} className="notion-modal-close" type="button">✕</button>
-              </div>
-              <form onSubmit={(e) => handleAddTransaction(e, "income")}>
-                <label>Amount (₹)</label>
-                <input type="number" name="amount" placeholder="0.00" min="0" step="0.01" required />
+        <Modal
+          isOpen={showIncomeForm}
+          onClose={() => setShowIncomeForm(false)}
+          title="Add New Income"
+          maxWidth="480px"
+        >
+          <form onSubmit={(e) => handleAddTransaction(e, "income")}>
+            <label>Amount (₹)</label>
+            <input type="number" name="amount" placeholder="0.00" min="0" step="0.01" required />
 
-                <label>Source</label>
-                <input type="text" name="source" placeholder="Salary, Freelance, Dividend..." required />
+            <label>Source</label>
+            <input type="text" name="source" placeholder="Salary, Freelance, Dividend..." required />
 
-                <label>Date</label>
-                <input type="date" name="date" required defaultValue={new Date().toISOString().split("T")[0]} />
+            <label>Date</label>
+            <input type="date" name="date" required defaultValue={new Date().toISOString().split("T")[0]} />
 
-                <label>Description</label>
-                <input type="text" name="description" placeholder="Optional notes" />
+            <label>Description</label>
+            <input type="text" name="description" placeholder="Optional notes" />
 
-                <div className="notion-modal-actions">
-                  <button type="submit" className="notion-btn-income">Add Income</button>
-                  <button type="button" onClick={() => setShowIncomeForm(false)} className="notion-btn-secondary">Cancel</button>
-                </div>
-              </form>
+            <div className="notion-modal-actions">
+              <button type="submit" className="notion-btn-income">Add Income</button>
+              <button type="button" onClick={() => setShowIncomeForm(false)} className="notion-btn-secondary">Cancel</button>
             </div>
-          </div>
-        )}
+          </form>
+        </Modal>
 
-        {showExpenseForm && (
-          <div className="notion-modal-backdrop" onClick={() => setShowExpenseForm(false)}>
-            <div className="notion-modal-box" onClick={(e) => e.stopPropagation()}>
-              <div className="notion-modal-header">
-                <h3>Add New Expense</h3>
-                <button onClick={() => setShowExpenseForm(false)} className="notion-modal-close" type="button">✕</button>
-              </div>
-              <form onSubmit={(e) => handleAddTransaction(e, "expense")}>
-                <label>Amount (₹)</label>
-                <input type="number" name="amount" placeholder="0.00" min="0" step="0.01" required />
+        <Modal
+          isOpen={showExpenseForm}
+          onClose={() => setShowExpenseForm(false)}
+          title="Add New Expense"
+          maxWidth="480px"
+        >
+          <form onSubmit={(e) => handleAddTransaction(e, "expense")}>
+            <label>Amount (₹)</label>
+            <input type="number" name="amount" placeholder="0.00" min="0" step="0.01" required />
 
-                <label>Category</label>
-                <input type="text" name="category" placeholder="Food, Travel, Utilities, Shopping..." required />
+            <label>Category</label>
+            <input type="text" name="category" placeholder="Food, Travel, Utilities, Shopping..." required />
 
-                <label>Merchant</label>
-                <input type="text" name="merchant" placeholder="Store or vendor name" />
+            <label>Merchant</label>
+            <input type="text" name="merchant" placeholder="Store or vendor name" />
 
-                <label>Date</label>
-                <input type="date" name="date" required defaultValue={new Date().toISOString().split("T")[0]} />
+            <label>Date</label>
+            <input type="date" name="date" required defaultValue={new Date().toISOString().split("T")[0]} />
 
-                <label>Payment Method</label>
-                <select name="payment_method">
-                  <option value="">Select method</option>
-                  <option value="UPI">UPI</option>
-                  <option value="CARD">Card</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                  <option value="CASH">Cash</option>
-                </select>
+            <label>Payment Method</label>
+            <select name="payment_method">
+              <option value="">Select method</option>
+              <option value="UPI">UPI</option>
+              <option value="CARD">Card</option>
+              <option value="BANK_TRANSFER">Bank Transfer</option>
+              <option value="CASH">Cash</option>
+            </select>
 
-                <label>Description</label>
-                <input type="text" name="description" placeholder="Optional notes" />
+            <label>Description</label>
+            <input type="text" name="description" placeholder="Optional notes" />
 
-                <div className="notion-modal-actions">
-                  <button type="submit" className="notion-btn-expense">Add Expense</button>
-                  <button type="button" onClick={() => setShowExpenseForm(false)} className="notion-btn-secondary">Cancel</button>
-                </div>
-              </form>
+            <div className="notion-modal-actions">
+              <button type="submit" className="notion-btn-expense">Add Expense</button>
+              <button type="button" onClick={() => setShowExpenseForm(false)} className="notion-btn-secondary">Cancel</button>
             </div>
-          </div>
-        )}
+          </form>
+        </Modal>
 
-        {showBudgetForm && (
-          <div className="notion-modal-backdrop" onClick={() => setShowBudgetForm(false)}>
-            <div className="notion-modal-box" onClick={(e) => e.stopPropagation()}>
-              <div className="notion-modal-header">
-                <h3>Add Budget Limit</h3>
-                <button onClick={() => setShowBudgetForm(false)} className="notion-modal-close" type="button">✕</button>
-              </div>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const token = localStorage.getItem("access_token");
-                  const formData = new FormData(e.target);
-                  const payload = {
-                    category: formData.get("category"),
-                    limit_amount: Number(formData.get("limit_amount")),
-                    period: formData.get("period"),
-                    start_date: formData.get("start_date"),
-                    end_date: formData.get("end_date"),
-                  };
+        <Modal
+          isOpen={showBudgetForm}
+          onClose={() => setShowBudgetForm(false)}
+          title="Add Budget Limit"
+          maxWidth="480px"
+        >
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const token = localStorage.getItem("access_token");
+              const formData = new FormData(e.target);
+              const payload = {
+                category: formData.get("category"),
+                limit_amount: Number(formData.get("limit_amount")),
+                period: formData.get("period"),
+                start_date: formData.get("start_date"),
+                end_date: formData.get("end_date"),
+              };
 
-                  try {
-                    const response = await fetch(`${API_URL}/budget`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                      },
-                      body: JSON.stringify(payload),
-                    });
+              try {
+                const response = await fetch(`${API_URL}/budget`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify(payload),
+                });
 
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.detail || "Failed to add budget");
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || "Failed to add budget");
 
-                    await fetchBudgets(token);
-                    await fetchBudgetSummary(token);
-                    await fetchBudgetAlerts(token);
-                    setShowBudgetForm(false);
-                    setMessage("Budget added successfully!");
-                  } catch (error) {
-                    setMessage(error.message);
-                  }
-                }}
-              >
-                <label>Category</label>
-                <input type="text" name="category" placeholder="Food, Utilities, Travel..." required />
+                await fetchBudgets(token);
+                await fetchBudgetSummary(token);
+                await fetchBudgetAlerts(token);
+                setShowBudgetForm(false);
+                addToast("Budget added successfully!", "success");
+              } catch (error) {
+                addToast(error.message, "error");
+              }
+            }}
+          >
+            <label>Category</label>
+            <input type="text" name="category" placeholder="Food, Utilities, Travel..." required />
 
-                <label>Limit Amount (₹)</label>
-                <input type="number" name="limit_amount" placeholder="5000" min="0" step="0.01" required />
+            <label>Limit Amount (₹)</label>
+            <input type="number" name="limit_amount" placeholder="5000" min="0" step="0.01" required />
 
-                <label>Period</label>
-                <select name="period" required>
-                  <option value="MONTHLY">Monthly</option>
-                  <option value="WEEKLY">Weekly</option>
-                  <option value="YEARLY">Yearly</option>
-                </select>
+            <label>Period</label>
+            <select name="period" required>
+              <option value="MONTHLY">Monthly</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="YEARLY">Yearly</option>
+            </select>
 
-                <label>Start Date</label>
-                <input type="date" name="start_date" required defaultValue={new Date().toISOString().split("T")[0]} />
+            <label>Start Date</label>
+            <input type="date" name="start_date" required defaultValue={new Date().toISOString().split("T")[0]} />
 
-                <label>End Date</label>
-                <input type="date" name="end_date" required />
+            <label>End Date</label>
+            <input type="date" name="end_date" required />
 
-                <div className="notion-modal-actions">
-                  <button type="submit" className="notion-btn-primary">Add Budget</button>
-                  <button type="button" onClick={() => setShowBudgetForm(false)} className="notion-btn-secondary">Cancel</button>
-                </div>
-              </form>
+            <div className="notion-modal-actions">
+              <button type="submit" className="notion-btn-primary">Add Budget</button>
+              <button type="button" onClick={() => setShowBudgetForm(false)} className="notion-btn-secondary">Cancel</button>
             </div>
-          </div>
-        )}
+          </form>
+        </Modal>
       </div>
     );
   }
 
   return (
     <div className="login-container">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div className="login-card">
 
